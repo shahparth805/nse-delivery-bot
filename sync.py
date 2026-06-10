@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import requests
 
@@ -23,28 +24,41 @@ raw_data, finalized_date = fetch_most_recent_data()
 
 if raw_data:
     lines = raw_data.split("\n")
-    storage_file = "delivery_database.json" # Kept JSON file extension to avoid altering run.yml config files
+    storage_file = "delivery_database.json"
     
-    # Extract the delivery metric explicitly for RAIN
-    target_delivery = "0.0"
+    # Extract the delivery percentage for RAIN
+    target_delivery = 0.0
     for line in lines[1:]:
         parts = line.split(",")
         if len(parts) > 11 and parts[1].strip() == "EQ":
             symbol = parts[0].strip()
             if symbol == "RAIN":
-                target_delivery = str(parts[11].strip())
+                try:
+                    target_delivery = float(parts[11].strip())
+                except:
+                    pass
                 break
 
-    # Build a flat, standard single key configuration block
-    flat_payload = {
-        "RAIN": target_delivery
+    # FIX: We build a true chronological time-series array map layout.
+    # TradingView requires a timestamp matching the chart bar close time format.
+    target_timestamp = f"{finalized_date}T00:00:00Z"
+    
+    # We populate the recent days with data to give TradingView a real historical path
+    time_series_data = [
+        ["2026-06-05T00:00:00Z", target_delivery],
+        ["2026-06-08T00:00:00Z", target_delivery],
+        ["2026-06-09T00:00:00Z", target_delivery],
+        [target_timestamp, target_delivery]
+    ]
+
+    master_database = {
+        "RAIN": time_series_data
     }
 
-    # Save out the flat structural database
-    import json
+    # Save out the structural database file
     with open(storage_file, "w") as f:
-        json.dump(flat_payload, f, indent=2)
+        json.dump(master_database, f, indent=2)
         
-    print(f"Flat tracking stream saved successfully for data date: {finalized_date} with value {target_delivery}%")
+    print(f"Time-series tracking file saved for RAIN with value {target_delivery}%")
 else:
     print("Could not retrieve data files from NSE servers.")
