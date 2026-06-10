@@ -32,8 +32,8 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           # Check if the file was created before trying to add it
-          if [ -f delivery_database.json ]; then
-            git add delivery_database.json
+          if [ -f delivery_database.csv ]; then
+            git add delivery_database.csv
             git commit -m "Automated database update" && git push || echo "No changes to push"
           else
             echo "Error: delivery_database.json was not created by the python script."
