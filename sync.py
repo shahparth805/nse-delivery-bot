@@ -1,75 +1,80 @@
 import datetime
+import json
 import os
-import pandas as pd
 import requests
 
-# 1. SETUP CREDENTIALS
-# Erase the text inside the quotes below and paste your real Nasdaq API key
-NASDAQ_API_KEY = "y45iH4sa1Sx1s8tcRyyx"
-DATASET_CODE = "NSE_DELIV"
 
-# Determine today's file name target from the NSE servers
-date_str = datetime.date.today().strftime("%d%m%Y")
-nse_url = f"https://archives.nseindia.com/products/content/sec_bhavdata_full_{date_str}.csv"
-headers = {"User-Agent": "Mozilla/5.0"}
+def fetch_most_recent_data():
+    headers = {"User-Agent": "Mozilla/5.0"}
+    # Check back up to 5 days to handle weekends, market holidays, or midnight runs safely
+    for lookback in range(6):
+        target_date = datetime.date.today() - datetime.timedelta(days=lookback)
 
-print("Waking up worker... Querying National Stock Exchange servers...")
-response = requests.get(nse_url, headers=headers)
+        # Skip checking Sundays and Saturdays entirely
+        if target_date.weekday() in [5, 6]:
+            continue
 
-if response.status_code == 200:
-    with open("today.csv", "w") as f:
-        f.write(response.text)
+        date_str = target_date.strftime("%d%m%Y")
+        nse_url = f"https://archives.nseindia.com/products/content/sec_bhavdata_full_{date_str}.csv"
 
-    df = pd.read_csv("today.csv")
-    df.columns = df.columns.str.strip()
-    df = df[df["SERIES"] == "EQ"]
-    df["DATE1"] = pd.to_datetime(df["DATE1"]).dt.strftime("%Y-%m-%d")
+        print(f"Checking NSE server records for date: {target_date}...")
+        response = requests.get(nse_url, headers=headers)
 
-    for _, row in df.iterrows():
-        symbol = str(row["SYMBOL"]).strip()
-        del_pct = row["DELIV_PER"]
-        date_today = row["DATE1"]
+        if response.status_code == 200 and "SYMBOL" in response.text:
+            print(f"Found active data file for: {target_date}!")
+            return response.text, target_date.strftime("%Y-%m-%d")
 
-        stock_file = f"history_{symbol}.csv"
-        new_row = pd.DataFrame(
-            {"Date": [date_today], "DeliveryPercentage": [del_pct]}
-        )
+    return None, None
 
-        if not os.path.exists(stock_file):
-            new_row.to_csv(stock_file, index=False)
-            combined = new_row
-        else:
-            old_df = pd.read_csv(stock_file)
-            combined = (
-                pd.concat([old_df, new_row])
-                .drop_duplicates(subset=["Date"], keep="last")
-                .sort_values(by="Date")
-            )
-            combined.to_csv(stock_file, index=False)
 
-        # 2. AUTOMATIC BOX GENERATION & DATA PUSH LAYER
-        upload_url = f"https://data.nasdaq.com/api/v3/datasets/{DATASET_CODE}/{symbol}/data.json?api_key={NASDAQ_API_KEY}"
-        payload = {"dataset": {"data": combined.values.tolist()}}
+# Run the data lookup routine
+raw_data, finalized_date = fetch_most_recent_data()
 
-        # Attempt to upload to the dataset row
-        res = requests.put(upload_url, json=payload)
+if raw_data:
+    lines = raw_data.split("\n")
+    storage_file = "delivery_database.json"
 
-        # If Nasdaq responds with 404 (Box does not exist yet), force the script to create it
-        if res.status_code == 404:
-            create_url = f"https://data.nasdaq.com/api/v3/datasets.json?api_key={NASDAQ_API_KEY}"
-            creation_payload = {
-                "dataset": {
-                    "database_code": DATASET_CODE,
-                    "dataset_code": symbol,
-                    "name": f"{symbol} Daily Stock Delivery Volume Data",
-                    "private": False,
-                    "data": combined.values.tolist(),
-                }
-            }
-            requests.post(create_url, json=creation_payload)
+    # Load existing historical JSON data if it exists, otherwise start fresh
+    if os.path.exists(storage_file):
+        with open(storage_file, "r") as f:
+            try:
+                master_database = json.load(f)
+            except:
+                master_database = {}
+    else:
+        master_database = {}
 
-    print("Database sync verified and pushed cleanly to Nasdaq cloud rooms.")
+    # Parse the rows directly from the exchange sheet
+    for line in lines[1:]:
+        parts = line.split(",")
+        if len(parts) > 11 and parts[1].strip() == "EQ":
+            symbol = parts[0].strip()
+            try:
+                del_pct = float(parts[11].strip())
+
+                if symbol not in master_database:
+                    master_database[symbol] = []
+
+                # Append the validated data points
+                master_database[symbol].append([finalized_date, del_pct])
+
+                # Clean out any duplicate entries if run multiple times
+                seen_dates = set()
+                unique_entries = []
+                for entry in sorted(
+                    master_database[symbol], key=lambda x: x[0]
+                ):
+                    if entry[0] not in seen_dates:
+                        seen_dates.add(entry[0])
+                        unique_entries.append(entry)
+                master_database[symbol] = unique_entries
+            except:
+                continue
+
+    # Save out the master tracking matrix straight into our GitHub repository folder
+    with open(storage_file, "w") as f:
+        json.dump(master_database, f, indent=2)
+
+    print(f"Master database updated successfully for data date: {finalized_date}")
 else:
-    print(
-        "NSE exchange server file hasn't compiled yet for evening processing."
-    )
+    print("Could not retrieve any recent data files from NSE servers.")
