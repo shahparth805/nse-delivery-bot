@@ -1,0 +1,23 @@
+name: NSE Delivery Automation Clock
+on:
+  schedule:
+    - cron: '30 14 * * 1-5' # Wakes up automatically Monday through Friday at 8:00 PM IST
+  workflow_dispatch: # Gives you a manual play button to test click whenever you want
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open Repository
+        uses: actions/checkout@v3
+
+      - name: Start Python Engine
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Load Data Libraries
+        run: pip install pandas requests
+
+      - name: Execute Sync
+        run: python sync.py
