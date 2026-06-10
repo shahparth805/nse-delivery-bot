@@ -62,7 +62,7 @@ if response.status_code == 200:
                     "database_code": DATASET_CODE,
                     "dataset_code": symbol,
                     "name": f"{symbol} Daily Stock Delivery Volume Data",
-                    "private": True,
+                    "private": False,
                     "data": combined.values.tolist(),
                 }
             }
