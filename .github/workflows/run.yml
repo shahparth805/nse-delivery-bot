@@ -1,12 +1,14 @@
 name: NSE Delivery Automation Clock
 on:
   schedule:
-    - cron: '30 14 * * 1-5' # Wakes up automatically Monday through Friday at 8:00 PM IST
-  workflow_dispatch: # Gives you a manual play button to test click whenever you want
+    - cron: '30 14 * * 1-5' # 8:00 PM IST
+  workflow_dispatch: # Manual test button
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Explicitly grants the script permission to add files
     steps:
       - name: Open Repository
         uses: actions/checkout@v3
@@ -21,3 +23,19 @@ jobs:
 
       - name: Execute Sync
         run: python sync.py
+
+      - name: Save JSON Database Back To Folder
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Passes the dynamic key
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if the file was created before trying to add it
+          if [ -f delivery_database.json ]; then
+            git add delivery_database.json
+            git commit -m "Automated database update" && git push || echo "No changes to push"
+          else
+            echo "Error: delivery_database.json was not created by the python script."
+            exit 1
+          fi
